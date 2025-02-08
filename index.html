@@ -1,0 +1,226 @@
+   <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Office Distance Tracker</title>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Poppins', sans-serif; }
+        body { display: flex; height: 100vh; background: #F4F7FC; }
+        
+        /* Sidebar */
+        #sidebar {
+            width: 30%;
+            background: linear-gradient(135deg, #6a11cb, #2575fc);
+            padding: 30px;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        #sidebar h2 { text-align: center; margin-bottom: 20px; }
+        #sidebar label { display: block; font-size: 14px; margin-bottom: 5px; }
+        #officeAddress {
+            width: 100%; padding: 10px; border-radius: 8px; border: none;
+            font-size: 14px; margin-bottom: 15px; outline: none;
+        }
+
+        #distances {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 15px;
+            border-radius: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        #distances ul { list-style: none; padding: 0; }
+        #distances li { font-size: 14px; padding: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.3); }
+        #distances li:last-child { border-bottom: none; }
+
+        /* Map */
+        #map { flex: 1; height: 100vh; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: white; border-radius: 10px; }
+    </style>
+</head>
+<body>
+
+    <!-- Sidebar -->
+    <div id="sidebar">
+        <div>
+            <h2>Office Distance Tracker</h2>
+            <label for="officeAddress">Enter Office Address:</label>
+            <input type="text" id="officeAddress" placeholder="Type to set office location">
+            <div id="distances">
+                <h3 style="text-align:center; margin-bottom: 10px;">Employee Distances</h3>
+                <ul></ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map -->
+    <div id="map"></div>
+
+    <!-- Google Maps API -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAWJhZLv2EkZ7zarOmoJU15wpZfah6eYec&libraries=places,directions,geometry"></script>
+
+    <script>
+        let map, officeMarker, directionsService, geocoder;
+        let directionsRenderers = [], infoWindows = [];
+        let totalDistance = 0, completedRoutes = 0;
+        let employees = [];
+        
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: { lat: 28.6131, lng: 77.3629 },
+                zoom: 12,
+                styles: [
+                    { elementType: "geometry", stylers: [{ color: "#ebe3cd" }] },
+                    { elementType: "labels.text.fill", stylers: [{ color: "#523735" }] }
+                ]
+            });
+
+            directionsService = new google.maps.DirectionsService();
+            geocoder = new google.maps.Geocoder();
+
+            // Bigger Office Marker
+            officeMarker = new google.maps.Marker({
+                position: { lat: 28.6131, lng: 77.3629 },
+                map: map,
+                draggable: true,
+                title: "Drag to move office!",
+                icon: {
+                    url: "https://maps.google.com/mapfiles/kml/shapes/library_maps.png",
+                    scaledSize: new google.maps.Size(50, 50) // Bigger icon size
+                }
+            });
+
+            // Update distances when marker is dragged
+            officeMarker.addListener('dragend', () => {
+                let position = officeMarker.getPosition();
+                geocodeLatLng(position, newAddress => {
+                    document.getElementById('officeAddress').value = newAddress;
+                    updateDistances();
+                });
+            });
+
+            // Autocomplete for manual address input
+            let input = document.getElementById('officeAddress');
+            let autocomplete = new google.maps.places.Autocomplete(input);
+            autocomplete.addListener('place_changed', function() {
+                let place = autocomplete.getPlace();
+                if (!place.geometry) return;
+                officeMarker.setPosition(place.geometry.location);
+                map.panTo(place.geometry.location);
+                updateDistances();
+            });
+
+            fetchEmployeesFromSheet();
+        }
+
+        async function fetchEmployeesFromSheet() {
+            const sheetId = "1K5ilFaanWVYFE-yq7BioWcxsgOrWxEgTi-ZMfTfeQDQ"; // Replace with your actual Google Sheet ID
+            const apiKey = "AIzaSyAWJhZLv2EkZ7zarOmoJU15wpZfah6eYec"; // Replace with your Google API Key
+            const range = "Sheet1!A2:B"; // Fetch Company Name & Address
+
+            const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?key=${apiKey}`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (!data.values) return;
+
+                employees = data.values.map(row => ({
+                    name: row[0],
+                    address: row[1]
+                }));
+
+                loadEmployees();
+            } catch (error) {
+                console.error("Error fetching data:", error);
+            }
+        }
+
+        function loadEmployees() {
+            employees.forEach(employee => {
+                geocoder.geocode({ address: employee.address }, (results, status) => {
+                    if (status === 'OK') {
+                        employee.position = results[0].geometry.location;
+                        new google.maps.Marker({
+                            position: employee.position,
+                            map: map,
+                            title: employee.name
+                        });
+                        updateDistances();
+                    }
+                });
+            });
+        }
+
+        function geocodeLatLng(latlng, callback) {
+            geocoder.geocode({ location: latlng }, (results, status) => {
+                if (status === "OK") {
+                    if (results[0]) {
+                        callback(results[0].formatted_address);
+                    }
+                }
+            });
+        }
+
+        function updateDistances() {
+            if (!officeMarker) return;
+            let officePos = officeMarker.getPosition();
+            let html = '<ul>';
+            totalDistance = 0;
+            completedRoutes = 0;
+
+            directionsRenderers.forEach(renderer => renderer.setMap(null));
+            directionsRenderers = [];
+            infoWindows.forEach(info => info.close());
+            infoWindows = [];
+
+            employees.forEach(employee => {
+                if (!employee.position) return;
+
+                const directionsRenderer = new google.maps.DirectionsRenderer({
+                    map: map,
+                    suppressMarkers: false,
+                    polylineOptions: {
+                        strokeColor: "#FF0000",
+                        strokeOpacity: 1,
+                        strokeWeight: 4
+                    }
+                });
+                directionsRenderers.push(directionsRenderer);
+
+                directionsService.route({
+                    origin: officePos,
+                    destination: employee.position,
+                    travelMode: google.maps.TravelMode.DRIVING
+                }, (response, status) => {
+                    if (status === 'OK') {
+                        directionsRenderer.setDirections(response);
+                        const distance = parseFloat(response.routes[0].legs[0].distance.text);
+                        totalDistance += distance;
+                        completedRoutes++;
+                        html += `<li>${employee.name}: ${distance} km</li>`;
+                        document.querySelector('#distances ul').innerHTML = html;
+                    }
+                });
+            });
+        }
+
+        initMap();
+    </script>
+
+</body>
+</html>
+
