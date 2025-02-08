@@ -1,4 +1,4 @@
-   <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -41,6 +41,7 @@
         #distances ul { list-style: none; padding: 0; }
         #distances li { font-size: 14px; padding: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.3); }
         #distances li:last-child { border-bottom: none; }
+        #averageDistance { text-align: center; color: yellow; font-size: 18px; font-weight: bold; margin-top: 10px; }
 
         /* Map */
         #map { flex: 1; height: 100vh; }
@@ -61,6 +62,7 @@
             <div id="distances">
                 <h3 style="text-align:center; margin-bottom: 10px;">Employee Distances</h3>
                 <ul></ul>
+                <div id="averageDistance"></div>
             </div>
         </div>
     </div>
@@ -76,15 +78,11 @@
         let directionsRenderers = [], infoWindows = [];
         let totalDistance = 0, completedRoutes = 0;
         let employees = [];
-        
+
         function initMap() {
             map = new google.maps.Map(document.getElementById('map'), {
                 center: { lat: 28.6131, lng: 77.3629 },
-                zoom: 12,
-                styles: [
-                    { elementType: "geometry", stylers: [{ color: "#ebe3cd" }] },
-                    { elementType: "labels.text.fill", stylers: [{ color: "#523735" }] }
-                ]
+                zoom: 12
             });
 
             directionsService = new google.maps.DirectionsService();
@@ -149,8 +147,8 @@
             }
         }
 
-        function loadEmployees() {
-            employees.forEach(employee => {
+        async function loadEmployees() {
+            for (const employee of employees) {
                 geocoder.geocode({ address: employee.address }, (results, status) => {
                     if (status === 'OK') {
                         employee.position = results[0].geometry.location;
@@ -162,31 +160,37 @@
                         updateDistances();
                     }
                 });
-            });
+            }
         }
+
+        function updateOfficeInfoWindow(averageDistance) {
+            const infoWindow = new google.maps.InfoWindow({
+                content: `<strong>Office</strong><br>Average Distance: ${averageDistance.toFixed(1)} km`
+            });
+            infoWindow.open(map, officeMarker);
+        }
+
 
         function geocodeLatLng(latlng, callback) {
             geocoder.geocode({ location: latlng }, (results, status) => {
-                if (status === "OK") {
-                    if (results[0]) {
-                        callback(results[0].formatted_address);
-                    }
+                if (status === "OK" && results[0]) {
+                    callback(results[0].formatted_address);
                 }
             });
         }
 
         function updateDistances() {
             if (!officeMarker) return;
-            let officePos = officeMarker.getPosition();
+            const officePos = officeMarker.getPosition();
             let html = '<ul>';
             totalDistance = 0;
             completedRoutes = 0;
-
+            
             directionsRenderers.forEach(renderer => renderer.setMap(null));
             directionsRenderers = [];
             infoWindows.forEach(info => info.close());
             infoWindows = [];
-
+            
             employees.forEach(employee => {
                 if (!employee.position) return;
 
@@ -200,7 +204,7 @@
                     }
                 });
                 directionsRenderers.push(directionsRenderer);
-
+                
                 directionsService.route({
                     origin: officePos,
                     destination: employee.position,
@@ -212,10 +216,21 @@
                         totalDistance += distance;
                         completedRoutes++;
                         html += `<li>${employee.name}: ${distance} km</li>`;
-                        document.querySelector('#distances ul').innerHTML = html;
+                        
+                        const infoWindow = new google.maps.InfoWindow();
+                        infoWindows.push(infoWindow);
+                        infoWindow.open(map);
+                        
+                        if (completedRoutes === employees.length) {
+                            const averageDistance = totalDistance / employees.length;
+                            updateOfficeInfoWindow(averageDistance);
+                        }
+                        
+                        document.getElementById('distances').innerHTML = html;
                     }
                 });
             });
+
         }
 
         initMap();
@@ -223,4 +238,3 @@
 
 </body>
 </html>
-
